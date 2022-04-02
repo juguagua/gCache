@@ -1,4 +1,4 @@
-package gCache
+package gcache
 
 import (
 	"gCache/lru"
@@ -32,4 +32,3 @@ func (c *cache) get(key string) (value ByteView, ok bool) {
 	}
 	return
 }
-

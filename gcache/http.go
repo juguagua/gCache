@@ -1,4 +1,4 @@
-package gCache
+package gcache
 
 import (
 	"fmt"
@@ -12,6 +12,11 @@ const defaultBasePath = "/_gcache/"
 type HTTPPool struct {
 	self     string // 用来记录自己的地址，包括主机名/IP/端口号
 	basePath string // 节点间通讯地址的前缀
+}
+
+func (p *HTTPPool) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
+	//TODO implement me
+	panic("implement me")
 }
 
 func NewHTTPPool(self string) *HTTPPool {
