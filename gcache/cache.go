@@ -1,7 +1,7 @@
 package gcache
 
 import (
-	"gCache/lru"
+	"gCache/gcache/lru"
 	"sync"
 )
 
