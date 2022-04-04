@@ -46,9 +46,10 @@ func (m *Map) Get(key string) string {
 	if len(m.keys) == 0 {
 		return ""
 	}
-	hash := int(m.hash([]byte(key)))
+	hash := int(m.hash([]byte(key))) // 计算key的哈希值
 	idx := sort.Search(len(m.keys), func(i int) bool {
-		return m.keys[i] >= hash
+		return m.keys[i] >= hash // 找到离key的哈希值最近的节点位置
 	})
-	return m.hashMap[m.keys[idx%len(m.keys)]]
+	return m.hashMap[m.keys[idx%len(m.keys)]] // 找到目标节点映射的真实节点（注意有环，需取余）
+
 }
