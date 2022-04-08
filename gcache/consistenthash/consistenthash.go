@@ -51,5 +51,4 @@ func (m *Map) Get(key string) string {
 		return m.keys[i] >= hash // 找到离key的哈希值最近的节点位置
 	})
 	return m.hashMap[m.keys[idx%len(m.keys)]] // 找到目标节点映射的真实节点（注意有环，需取余）
-
 }
