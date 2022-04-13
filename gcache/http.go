@@ -2,24 +2,32 @@ package gcache
 
 import (
 	"fmt"
+	"gCache/gcache/consistenthash"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 )
 
-const defaultBasePath = "/_gcache/"
+const (
+	defaultBasePath = "/_gcache/"
+	defaultReplicas = 50
+)
 
 type HTTPPool struct {
 	self     string // 用来记录自己的地址，包括主机名/IP/端口号
 	basePath string // 节点间通讯地址的前缀
+	mu 		 sync.Mutex
+	peers    *consistenthash.Map  // 根据key来选择节点
+	httpGetters map[string]*httpGetter  // 映射远程节点与对应的httpGetter
 }
 
 type httpGetter struct {
-	baseURL string
+	baseURL string  // 表示将要访问的远程节点的地址
 }
-
+// Get 获取返回值
 func (h *httpGetter) Get(group string, key string) ([]byte, error) {
 	u := fmt.Sprintf(
 		"%v%v%v",
@@ -45,7 +53,7 @@ func (h *httpGetter) Get(group string, key string) ([]byte, error) {
 	return bytes, nil
 
 }
-var _ PeerGetter = (*httpGetter)(nil)
+var _ PeerGetter = (*httpGetter)(nil)   // ??? 什么意思
 
 func (p *HTTPPool) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	//TODO implement me
