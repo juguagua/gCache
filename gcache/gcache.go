@@ -11,6 +11,7 @@ type Group struct {
 	name      string
 	getter    Getter // 回调函数
 	mainCache cache  // Group中并发缓存的具体实现
+	peers     PeerPicker
 }
 
 // Getter 回调函数的接口

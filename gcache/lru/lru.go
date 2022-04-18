@@ -3,21 +3,22 @@ package lru
 import "container/list"
 
 type Cache struct {
-	cap      int64
-	curBytes int64 // current size
-	list     *list.List
-	cache    map[string]*list.Element
-	// optional and executed when an entry is purged
-	OnEvicted func(key string, value Value)
+	cap       int64                         // 缓存容量
+	curBytes  int64                         // 当前的缓存大小
+	list      *list.List                    // cache的队列（双向链表实现）
+	cache     map[string]*list.Element      // 字典 映射
+	OnEvicted func(key string, value Value) // 回调函数
 }
 
+// 实际的节点
 type entry struct {
 	key   string
 	value Value
 }
 
-// Value use Len() to count how many bytes it takes
+// 为了通用性，允许value是任何实现了Value接口的类型
 type Value interface {
+	// 用于返回value所占用的内存大小
 	Len() int
 }
 
