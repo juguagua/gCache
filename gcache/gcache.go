@@ -14,6 +14,23 @@ type Group struct {
 	peers     PeerPicker
 }
 
+// RegisterPeers 将实现了PeerPicker接口的HTTPPool注入到Group中
+func (g *Group) RegisterPeers(peers PeerPicker) {
+	if g.peers != nil {
+		panic("RegisterPeerPicker called more than once")
+	}
+	g.peers = peers
+}
+
+// getFromPeer 将实现了PeerGetter接口的httpGetter访问远程节点，获取缓存值
+func (g *Group) getFromPeer(peer PeerGetter, key string) (ByteView, error) {
+	bytes, err := peer.Get(g.name, key)
+	if err != nil {
+		return ByteView{}, err
+	}
+	return ByteView{b: bytes}, nil
+}
+
 // Getter 回调函数的接口
 type Getter interface {
 	Get(key string) ([]byte, error)
@@ -67,8 +84,16 @@ func (g *Group) Get(key string) (ByteView, error) {
 	return g.load(key)
 }
 
-// 获取数据并加载到缓存
-func (g *Group) load(key string) (ByteView, error) {
+// 获取数据并加载到缓存，若非本机节点则通过getFromPeer从远程节点获取
+func (g *Group) load(key string) (value ByteView, err error) {
+	if g.peers != nil {
+		if peer, ok := g.peers.PickPeers(key); ok {
+			if value, err = g.getFromPeer(peer, key); err != nil {
+				return value, nil
+			}
+			log.Println("failed to get from peer", err)
+		}
+	}
 	return g.getLocally(key)
 }
 
