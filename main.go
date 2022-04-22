@@ -13,6 +13,13 @@ var db = map[string]string{
 	"Sam":  "567",
 }
 
+// RegisterPeers registers a PeerPicker for choosing remote peer
+func (g *Group) RegisterPeers(peers PeerPicker) {
+	if g.peers != nil {
+		panic("RegisterPeerPicker called more than once")
+	}
+	g.peers = peers
+}
 func main() {
 	gcache.NewGroup("scores", gcache.GetterFunc(
 		func(key string) ([]byte, error) {
