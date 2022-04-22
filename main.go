@@ -13,13 +13,6 @@ var db = map[string]string{
 	"Sam":  "567",
 }
 
-// RegisterPeers registers a PeerPicker for choosing remote peer
-func (g *Group) RegisterPeers(peers PeerPicker) {
-	if g.peers != nil {
-		panic("RegisterPeerPicker called more than once")
-	}
-	g.peers = peers
-}
 func main() {
 	gcache.NewGroup("scores", gcache.GetterFunc(
 		func(key string) ([]byte, error) {
@@ -34,4 +27,25 @@ func main() {
 	peers := gcache.NewHTTPPool(addr)
 	log.Println("geecache is running at", addr)
 	log.Fatal(http.ListenAndServe(addr, peers))
+}
+
+func createGroup() *gcache.Group {
+	return gcache.NewGroup("score", gcache.GetterFunc(
+		func(key string) ([]byte, error) {
+			log.Println("search key ", key)
+			if v, ok := db[key]; ok {
+				return []byte(v), nil
+			}
+			return nil, fmt.Errorf("%s not exist", key)
+		},
+	), 2<<10)
+}
+
+func startCacheServe(addr string, addrs []string, g *gcache.Group) {
+	peers := gcache.NewHTTPPool(addr)
+	peers.Set(addrs...)
+	g.RegisterPeers(peers)
+	log.Println("geecache is running at", addr)
+	log.Fatal(http.ListenAndServe(addr[7:], peers))
+
 }
