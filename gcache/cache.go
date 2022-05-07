@@ -5,10 +5,11 @@ import (
 	"sync"
 )
 
+// 实例化lru缓存，封装add和get方法
 type cache struct {
-	mu         sync.Mutex
-	lru        *lru.Cache
-	cacheBytes int64
+	mu         sync.Mutex // 互斥锁
+	lru        *lru.Cache // lru缓存
+	cacheBytes int64      // 缓存容量
 }
 
 func (c *cache) add(key string, value ByteView) {
