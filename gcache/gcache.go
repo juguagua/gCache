@@ -2,16 +2,18 @@ package gcache
 
 import (
 	"fmt"
+	"gCache/gcache/singleflight"
 	"log"
 	"sync"
 )
 
 // Group 一个Group为一个缓存的命名空间，可以按照缓存功能不同进行分类
 type Group struct {
-	name      string     // 缓存空间名
-	getter    Getter     // 回调函数
-	mainCache cache      // Group真实的缓存存储
-	peers     PeerPicker // 提供选择节点方法
+	name      string              // 缓存空间名
+	getter    Getter              // 回调函数
+	mainCache cache               // Group真实的缓存存储
+	peers     PeerPicker          // 提供选择节点方法
+	loader    *singleflight.Group // 使用singleflight来确保每个key一次只会发起一个请求
 }
 
 var (
@@ -30,6 +32,7 @@ func NewGroup(name string, getter Getter, cacheBytes int64) *Group {
 		name:      name,
 		getter:    getter,
 		mainCache: cache{cacheBytes: cacheBytes},
+		loader:    &singleflight.Group{},
 	}
 	groups[name] = g // 将new的Group加入到全局变量中去
 	return g
