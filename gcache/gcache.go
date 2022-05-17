@@ -2,6 +2,7 @@ package gcache
 
 import (
 	"fmt"
+	pb "gCache/gcache/gcachepb/gcachepb"
 	"gCache/gcache/singleflight"
 	"log"
 	"sync"
@@ -72,15 +73,21 @@ func (g *Group) Get(key string) (ByteView, error) {
 
 // 获取数据并加载到缓存，若非本机节点则通过getFromPeer从远程节点获取
 func (g *Group) load(key string) (value ByteView, err error) {
-	if g.peers != nil {
-		if peer, ok := g.peers.PickPeer(key); ok { // 先从远程节点中选取相应的节点
-			if value, err = g.getFromPeer(peer, key); err != nil { // 访问远程节点，获取缓存值
-				return value, nil
+	viewi, err := g.loader.Do(key, func() (interface{}, error) { // 将load的逻辑包在loader.Do中确保并发请求不会一起调用
+		if g.peers != nil {
+			if peer, ok := g.peers.PickPeer(key); ok { // 先从远程节点中选取相应的节点
+				if value, err = g.getFromPeer(peer, key); err != nil { // 访问远程节点，获取缓存值
+					return value, nil
+				}
+				log.Println("failed to get from peer", err)
 			}
-			log.Println("failed to get from peer", err)
 		}
+		return g.getLocally(key) // 如果不在远程节点，就从本地节点获取
+	})
+	if err == nil {
+		return viewi.(ByteView), nil
 	}
-	return g.getLocally(key) // 如果不在远程节点，就从本地节点获取
+	return
 }
 
 // 从本地数据源获取数据
@@ -109,9 +116,14 @@ func (g *Group) RegisterPeers(peers PeerPicker) {
 
 // getFromPeer 用实现了PeerGetter接口的httpGetter访问远程节点，获取缓存值
 func (g *Group) getFromPeer(peer PeerGetter, key string) (ByteView, error) {
-	bytes, err := peer.Get(g.name, key) // 在peer远程节点的group中查找缓存值
+	req := &pb.Request{
+		Group: g.name,
+		Key:   key,
+	}
+	res := &pb.Response{}
+	err := peer.Get(req, res) // 在peer远程节点的group中查找缓存值
 	if err != nil {
 		return ByteView{}, err
 	}
-	return ByteView{b: bytes}, nil
+	return ByteView{b: res.Value}, nil
 }

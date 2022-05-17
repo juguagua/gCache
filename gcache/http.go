@@ -3,6 +3,8 @@ package gcache
 import (
 	"fmt"
 	"gCache/gcache/consistenthash"
+	pb "gCache/gcache/gcachepb/gcachepb"
+	"google.golang.org/protobuf/proto"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -39,35 +41,69 @@ type httpGetter struct {
 }
 
 // Get httpGetter实现peerGetter接口作为客户端，get方法访问获取缓存值
-func (h *httpGetter) Get(group string, key string) ([]byte, error) {
+func (h *httpGetter) Get(in *pb.Request, out *pb.Response) error {
 	u := fmt.Sprintf(
 		"%v%v%v",
 		h.baseURL,
-		url.QueryEscape(group),
-		url.QueryEscape(key),
+		url.QueryEscape(in.GetGroup()),
+		url.QueryEscape(in.GetKey()),
 	)
 	res, err := http.Get(u) // 给指定的url发送一个get请求，拿到返回值
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer res.Body.Close()
 
 	if res.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("server returned: %v", res.Status)
+		return fmt.Errorf("server returned: %v", res.Status)
 	}
 
 	bytes, err := ioutil.ReadAll(res.Body) // 解析响应
 	if err != nil {
-		return nil, fmt.Errorf("reading response body: %v", err)
+		return fmt.Errorf("reading response body: %v", err)
 	}
-	return bytes, nil
+	if err = proto.Unmarshal(bytes, out); err != nil {
+		return fmt.Errorf("decoding response body: %v", err)
+	}
+	return nil
 }
 
-var _ PeerGetter = (*httpGetter)(nil) // 提供编译器静态检查，判断httpGetter是否实现了PeerGetter这个接口（类型断言）
+func (p *HTTPPool) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if !strings.HasPrefix(r.URL.Path, p.basePath) {
+		panic("HTTPPool serving unexpected path: " + r.URL.Path)
+	}
+	p.Log("%s %s", r.Method, r.URL.Path)
+	// /<basepath>/<groupname>/<key> required
+	parts := strings.SplitN(r.URL.Path[len(p.basePath):], "/", 2)
+	if len(parts) != 2 {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
 
-func (p *HTTPPool) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
-	//TODO implement me
-	panic("implement me")
+	groupName := parts[0]
+	key := parts[1]
+
+	group := GetGroup(groupName)
+	if group == nil {
+		http.Error(w, "no such group: "+groupName, http.StatusNotFound)
+		return
+	}
+
+	view, err := group.Get(key)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Write the value to the response body as a proto message.
+	body, err := proto.Marshal(&pb.Response{Value: view.ByteSlice()})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Write(body)
 }
 
 // 带有服务器名称的信息
@@ -126,3 +162,5 @@ func (p *HTTPPool) PickPeer(key string) (PeerGetter, bool) {
 	}
 	return nil, false
 }
+
+var _ PeerGetter = (*httpGetter)(nil) // 提供编译器静态检查，判断httpGetter是否实现了PeerGetter这个接口（类型断言）
