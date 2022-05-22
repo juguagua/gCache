@@ -1,16 +1,16 @@
 package gcache
 
-// A ByteView holds an immutable view of bytes
+// ByteView 抽象出的只读的数据结构
 type ByteView struct { // 缓存值的封装结构
 	b []byte // byteView只有一个成员变量[]byte, 其会存储真实的缓存值
 }
 
-// 实现lru中Value接口的Len()方法，即实现Value接口
+// Len 实现lru的Value接口
 func (v ByteView) Len() int {
 	return len(v.b)
 }
 
-// 因为b是一个切片类型，直接返回其值可能被外部程序修改，因此外部程序需要时返回其的一个拷贝
+// ByteSlice 因为b是一个切片类型，直接返回其值可能被外部程序修改，因此外部程序需要时返回其的一个拷贝
 func (v ByteView) ByteSlice() []byte {
 	return cloneBytes(v.b)
 }

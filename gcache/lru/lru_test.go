@@ -1,52 +1,56 @@
 package lru
 
 import (
+	"fmt"
 	"reflect"
 	"testing"
 )
 
 type String string
 
-func (d String) Len() int {
-	return len(d)
+func (str String) Len() int {
+	return len(str)
 }
 
 func TestCache_Get(t *testing.T) {
 	lru := New(int64(0), nil)
-	lru.Add("key1", String("123"))
-	if v, ok := lru.Get("key1"); !ok || string(v.(String)) != "123" {
-		t.Fatalf("cache get failed")
-	}
-	if _, ok := lru.Get("key2"); ok {
-		t.Fatalf("cache miss failed")
+	lru.Add("key1", String("value1"))
+	fmt.Println(lru.Get("key1"))
+	if val, ok := lru.Get("key1"); !ok || string(val.(String)) != "value1" {
+		t.Fatalf("cache key1=value fail!!!")
 	}
 }
 
-func TestCache_RemoveOldest(t *testing.T) {
+func TestCache_Add(t *testing.T) {
 	k1, k2, k3 := "key1", "key2", "key3"
 	v1, v2, v3 := "value1", "value2", "value3"
 	cap := len(k1 + k2 + v1 + v2)
 	lru := New(int64(cap), nil)
 	lru.Add(k1, String(v1))
 	lru.Add(k2, String(v2))
-	lru.Add(k3, String(v3))
+	lru.Add(k3, String(v3)) //插入k3的时候k1会被移除
 	if _, ok := lru.Get("key1"); ok || lru.Len() != 2 {
-		t.Fatalf("RemoveOldest failed")
+		t.Fatalf("remove key1 fail")
 	}
 }
 
-func TestCache_OnEvicted(t *testing.T) {
+func TestOnEvicted(t *testing.T) {
 	keys := make([]string, 0)
 	callback := func(key string, value Value) {
 		keys = append(keys, key)
 	}
-	lru := New(int64(10), callback)
-	lru.Add("key1", String("123456"))
-	lru.Add("k2", String("k2"))
-	lru.Add("k3", String("k3"))
-	lru.Add("k4", String("k4"))
-	expect := []string{"key1", "k2"}
+	k1, k2, k3 := "key1", "key2", "key3"
+	v1, v2, v3 := "汉字", "value2", "value3"
+	lru := New(int64(12), callback)
+	lru.Add(k1, String(v1)) //插入k1后占用10byte
+	if lru.curBytes != 10 {
+		t.Fatalf("error")
+	}
+	lru.Add(k2, String(v2)) //插入k2后k1会被移除
+	lru.Add(k3, String(v3)) //插入k3的时候k2会被移除
+	fmt.Println(lru.cap, lru.curBytes)
+	expect := []string{"key1", "key2"}
 	if !reflect.DeepEqual(expect, keys) {
-		t.Fatalf("Callback function failed")
+		t.Fatalf("Call onevicted failed expect:%s , keys: %s", expect, keys)
 	}
 }
