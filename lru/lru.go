@@ -2,7 +2,7 @@ package lru
 
 import (
 	"container/list"
-	"github.com/jiaxwu/gcache/zset"
+	"github.com/juguagua/gCache/zset"
 	"time"
 )
 

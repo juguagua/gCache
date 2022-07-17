@@ -1,4 +1,4 @@
-module github.com/jiaxwu/gcache
+module github.com/juguagua/gCache
 
 go 1.18
 

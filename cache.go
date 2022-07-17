@@ -1,7 +1,7 @@
 package gcache
 
 import (
-	"github.com/jiaxwu/gcache/lru"
+	"github.com/juguagua/gCache/lru"
 	"sync"
 )
 

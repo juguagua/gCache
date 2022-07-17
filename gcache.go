@@ -3,7 +3,7 @@ package gcache
 import (
 	"errors"
 	"fmt"
-	pb "github.com/jiaxwu/gcache/gcachepb"
+	pb "github.com/juguagua/gCache/gcachepb"
 	"golang.org/x/sync/singleflight"
 	"log"
 	"sync"

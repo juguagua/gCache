@@ -1,6 +1,6 @@
 package gcache
 
-import pb "github.com/jiaxwu/gcache/gcachepb"
+import pb "github.com/juguagua/gCache/gcachepb"
 
 // PeerGetter 远程客户端，根据group和key获取缓存
 type PeerGetter interface {

@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"github.com/jiaxwu/gcache"
+	"github.com/juguagua/gCache"
 	"log"
 	"net/http"
 	"time"

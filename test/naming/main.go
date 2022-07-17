@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/jiaxwu/gcache/registry"
+	"github.com/juguagua/gCache/registry"
 	"log"
 )
 

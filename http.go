@@ -11,9 +11,9 @@ import (
 	"sync"
 
 	"github.com/golang/protobuf/proto"
-	"github.com/jiaxwu/gcache/consistenthash"
-	pb "github.com/jiaxwu/gcache/gcachepb"
-	"github.com/jiaxwu/gcache/registry"
+	"github.com/juguagua/gCache/consistenthash"
+	pb "github.com/juguagua/gCache/gcachepb"
+	"github.com/juguagua/gCache/registry"
 )
 
 const (
