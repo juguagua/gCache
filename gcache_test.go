@@ -19,6 +19,7 @@ func TestGetter(t *testing.T) {
 	}
 }
 
+// 测试Get方法
 func TestGroup_Get(t *testing.T) {
 	var db = map[string]string{
 		"Tom":  "630",
