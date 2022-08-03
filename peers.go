@@ -1,15 +1,14 @@
 package gcache
 
-import pb "github.com/juguagua/gCache/gcachepb"
+// peers 模块
 
-// PeerGetter 远程客户端，根据group和key获取缓存
-type PeerGetter interface {
-	Get(in *pb.Request, out *pb.Response) error
-	Remove(in *pb.Request) error
+// Picker 定义了获取分布式节点的能力
+type Picker interface {
+	Pick(key string) (Fetcher, bool)
 }
 
-// PeerPicker 用于获取远程节点的请求客户端
-type PeerPicker interface {
-	PickPeer(key string) (PeerGetter, bool)
-	GetAll() []PeerGetter
+// Fetcher 定义了从远端获取缓存的能力
+// 所以每个Peer应实现这个接口
+type Fetcher interface {
+	Fetch(group string, key string) ([]byte, error)
 }

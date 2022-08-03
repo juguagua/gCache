@@ -24,18 +24,16 @@ type Event struct {
 
 // Registry 名字服务
 type Registry struct {
-	// etcd服务器地址
-	endpoints []string
+	endpoints []string // etcd的多个节点服务地址
 	mu        sync.Mutex
 	client    *etcd.Client
-	// etcd名字服务key前缀
-	prefix string
+	prefix    string // etcd名字服务key前缀
 }
 
 func New(prefix string, endpoints []string) (*Registry, error) {
 	client, err := etcd.New(etcd.Config{
-		Endpoints:   endpoints,
-		DialTimeout: 5 * time.Second,
+		Endpoints:   endpoints,       // etcd的多个节点服务地址
+		DialTimeout: 5 * time.Second, // 创建client的首次连接超时时间
 	})
 	if err != nil {
 		return nil, err
@@ -49,9 +47,9 @@ func New(prefix string, endpoints []string) (*Registry, error) {
 
 // Register 注册服务
 func (r *Registry) Register(ctx context.Context, addr string) error {
-	kv := etcd.NewKV(r.client)
-	lease := etcd.NewLease(r.client)
-	grant, err := lease.Grant(ctx, keepAliveTTL)
+	kv := etcd.NewKV(r.client)                   // 通过new kv获取kv接口的实现，可通过kv操作etcd中的数据
+	lease := etcd.NewLease(r.client)             // 通过new lease获取Lease对象
+	grant, err := lease.Grant(ctx, keepAliveTTL) // 创建一个续约时间为10s的租约
 	if err != nil {
 		return err
 	}

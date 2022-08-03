@@ -10,6 +10,9 @@ import (
 // LRU：最近最少使用。它很综合，如果数据最近很少被使用，那么就会被淘汰。它的实现很简单，使用map+双向链表。
 // LFU：最不经常使用。它根据访问次数来决定是否被淘汰，可能会存在某个一段时间很热的key在另外一段时间不那么热，却由于积累的访问次数过大而无法被淘汰。它的实现使用两个map+双向链表。https://juejin.cn/post/6987260805888606245#heading-2
 
+// Warning: lru包不提供并发一致机制
+// TODO: 实现lru-k
+
 const (
 	expiresZSetKey = ""
 	// 每次移除过期键数量
@@ -18,19 +21,16 @@ const (
 
 // Cache LRU缓存
 type Cache struct {
-	// 最大缓存字节数
-	maxBytes int
-	// 已经缓存字节数
-	nBytes int
-	ll     *list.List
-	cache  map[string]*list.Element
-	// 可选，在entry被移除的时候执行
-	onEvicted func(key string, value Value)
-	// 过期键集合
-	expires *zset.SortedSet
+	capacity  int // 缓存容量
+	length    int // 当前缓存大小
+	ll        *list.List
+	cache     map[string]*list.Element
+	onEvicted func(key string, value Value) // 可选，在entry被移除的时候执行
+	expires   *zset.SortedSet               // 过期键集合
 }
 
-type entry struct {
+// Entry 定义双向链表节点所存储的对象
+type Entry struct {
 	key   string
 	value Value
 }
@@ -41,9 +41,11 @@ type Value interface {
 	Expire() time.Time
 }
 
+// New 创建指定最大容量的LRU缓存。
+// 当maxBytes为0时，代表cache无内存限制，无限存放
 func New(maxBytes int, onEvicted func(key string, value Value)) *Cache {
 	return &Cache{
-		maxBytes:  maxBytes,
+		capacity:  maxBytes,
 		ll:        list.New(),
 		cache:     make(map[string]*list.Element),
 		onEvicted: onEvicted,
@@ -51,13 +53,13 @@ func New(maxBytes int, onEvicted func(key string, value Value)) *Cache {
 	}
 }
 
-// Get 获取缓存的值
-func (c *Cache) Get(key string) (Value, bool) {
+// Get 从缓存获取对应key的value
+func (c *Cache) Get(key string) (value Value, ok bool) {
 	element, ok := c.cache[key]
 	if !ok {
 		return nil, false
 	}
-	ent := element.Value.(*entry)
+	ent := element.Value.(*Entry)
 	// 移除过期的键
 	if !ent.value.Expire().IsZero() && ent.value.Expire().Before(time.Now()) {
 		c.removeElement(element)
@@ -71,17 +73,17 @@ func (c *Cache) Get(key string) (Value, bool) {
 func (c *Cache) Add(key string, value Value) {
 	if element, ok := c.cache[key]; ok {
 		c.ll.MoveToBack(element)
-		ent := element.Value.(*entry)
-		c.nBytes += value.Len() - ent.value.Len()
+		ent := element.Value.(*Entry)
+		c.length += value.Len() - ent.value.Len()
 		ent.value = value
 	} else {
-		ent := &entry{
+		ent := &Entry{
 			key:   key,
 			value: value,
 		}
 		element := c.ll.PushBack(ent)
 		c.cache[key] = element
-		c.nBytes += len(key) + value.Len()
+		c.length += len(key) + value.Len()
 	}
 	// 如果有超时时间则设置
 	if !value.Expire().IsZero() {
@@ -91,14 +93,12 @@ func (c *Cache) Add(key string, value Value) {
 		c.expires.ZRem(expiresZSetKey, key)
 	}
 	// 淘汰过期的key
-	for c.maxBytes != 0 && c.nBytes > c.maxBytes {
-		// 如果已经没有可以删除的过期键，则退出循环
-		if c.removeExpire(removeExpireN) > 0 {
-			break
-		}
+	if c.capacity != 0 {
+		c.removeExpire(removeExpireN)
 	}
+
 	// 淘汰最近最少访问的key
-	for c.maxBytes != 0 && c.nBytes > c.maxBytes {
+	for c.capacity != 0 && c.length > c.capacity {
 		c.removeOldest()
 	}
 }
@@ -123,12 +123,12 @@ func (c *Cache) removeOldest() {
 	}
 }
 
-// 移除某个键，并删除链表里面的节点，减少lru缓存大小，删除过期时间，调用回调函数
+// 移除指定键，并删除链表里面的节点，减少lru缓存大小，删除过期时间，调用回调函数
 func (c *Cache) removeElement(e *list.Element) {
 	c.ll.Remove(e)
-	kv := e.Value.(*entry)
+	kv := e.Value.(*Entry)
 	delete(c.cache, kv.key)
-	c.nBytes -= len(kv.key) + kv.value.Len()
+	c.length -= len(kv.key) + kv.value.Len()
 	// 移除过期键
 	if !kv.value.Expire().IsZero() {
 		c.expires.ZRem(expiresZSetKey, kv.key)
@@ -144,7 +144,7 @@ func (c *Cache) removeExpire(n int) int {
 	for n > 0 && c.expires.ZCard(expiresZSetKey) > 0 {
 		values := c.expires.ZRangeWithScores(expiresZSetKey, 0, 0)
 		key, expireNano := values[0].(string), values[1].(int64)
-		// 第一个键都没超时，结果循环
+		// 第一个键都没超时，结束循环
 		if expireNano > time.Now().UnixNano() {
 			break
 		}

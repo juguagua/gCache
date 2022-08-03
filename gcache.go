@@ -10,23 +10,24 @@ import (
 	"time"
 )
 
-// Getter 用于加载数据
+// Getter 用于从数据源获取数据
 type Getter interface {
-	Get(key string) (ByteView, error)
+	Get(key string) (ByteView, error) // 回调函数
 }
 
+// 函数类型实现Getter接口
 type GetterFunc func(key string) (ByteView, error)
 
 func (f GetterFunc) Get(key string) (ByteView, error) {
 	return f(key)
 }
 
-// Group 一个缓存命名空间
+// Group 一个缓存命名空间，比如某个group是某个类型数据的缓存
 type Group struct {
-	name      string
-	getter    Getter
-	mainCache *cache
-	hotCache  *cache
+	name      string // 缓存空间的名字
+	getter    Getter // 缓存未命中时的回调
+	mainCache *cache // 主缓存，并发缓存
+	hotCache  *cache // 热点缓存
 	// 用于获取远程节点请求客户端
 	peers PeerPicker
 	// 避免对同一个key多次加载
@@ -46,7 +47,7 @@ var (
 
 // NewGroup 创建一个Group
 func NewGroup(name string, cacheBytes int, getter Getter) *Group {
-	if getter == nil {
+	if getter == nil { // 必须得有缓存未命中时的回调接口
 		panic("nil Getter")
 	}
 	mu.Lock()
@@ -66,7 +67,7 @@ func NewGroup(name string, cacheBytes int, getter Getter) *Group {
 
 // GetGroup 从全局缓存获取Group
 func GetGroup(name string) *Group {
-	mu.RLock()
+	mu.RLock() // 从全局缓存获取Group只需要加读锁即可
 	defer mu.RUnlock()
 	return groups[name]
 }
@@ -101,12 +102,12 @@ func (g *Group) Get(key string) (ByteView, error) {
 		return ByteView{}, fmt.Errorf("key is required")
 	}
 
-	if v, ok := g.mainCache.get(key); ok {
+	if v, ok := g.mainCache.get(key); ok { // 先从主缓存获取
 		log.Println("[Cache] main cache hit")
 		return v, nil
 	}
 	if g.hotCache != nil {
-		if v, ok := g.hotCache.get(key); ok {
+		if v, ok := g.hotCache.get(key); ok { // 主缓存没有看热点缓存
 			log.Println("[Cache] hot cache hit")
 			return v, nil
 		}
