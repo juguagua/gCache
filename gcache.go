@@ -1,41 +1,40 @@
 package gcache
 
 import (
-	"errors"
 	"fmt"
-	pb "github.com/juguagua/gCache/gcachepb"
-	"golang.org/x/sync/singleflight"
+	"github.com/juguagua/gCache/singleflight"
+
 	"log"
 	"sync"
 	"time"
 )
 
-// Getter 用于从数据源获取数据
+// gcache 模块提供比cache模块更高一层抽象的能力
+// 换句话说，实现了填充缓存/命名划分缓存的能力
+
+// Getter 要求对象实现从数据源获取数据的能力
 type Getter interface {
 	Get(key string) (ByteView, error) // 回调函数
 }
 
-// 函数类型实现Getter接口
+// GetterFunc 函数类型实现Getter接口
 type GetterFunc func(key string) (ByteView, error)
 
+// Get 通过实现Get方法，使得任意匿名函数func
+// 通过被GetterFunc(func)类型强制转换后，实现了 Getter 接口的能力
 func (f GetterFunc) Get(key string) (ByteView, error) {
 	return f(key)
 }
 
-// Group 一个缓存命名空间，比如某个group是某个类型数据的缓存
+// Group 提供命名管理缓存/填充缓存的能力
 type Group struct {
-	name      string // 缓存空间的名字
-	getter    Getter // 缓存未命中时的回调
-	mainCache *cache // 主缓存，并发缓存
-	hotCache  *cache // 热点缓存
-	// 用于获取远程节点请求客户端
-	peers PeerPicker
-	// 避免对同一个key多次加载
-	loadGroup *singleflight.Group
-	// 避免对同一个key多次删除
-	removeGroup *singleflight.Group
-	// getter返回error时对应空值key的过期时间
-	emptyKeyDuration time.Duration
+	name             string               // 缓存空间的名字
+	getter           Getter               // 数据源获取数据
+	mainCache        *cache               // 主缓存，并发缓存
+	hotCache         *cache               // 热点缓存
+	server           Picker               // 用于获取远程节点请求客户端
+	flight           *singleflight.Flight // 避免对同一个key多次加载造成缓存击穿
+	emptyKeyDuration time.Duration        // getter返回error时对应空值key的过期时间
 }
 
 var (
@@ -45,39 +44,49 @@ var (
 	groups = make(map[string]*Group)
 )
 
-// NewGroup 创建一个Group
+// NewGroup 创建一个新的缓存空间
 func NewGroup(name string, cacheBytes int, getter Getter) *Group {
 	if getter == nil { // 必须得有缓存未命中时的回调接口
 		panic("nil Getter")
 	}
-	mu.Lock()
-	defer mu.Unlock()
 	g := &Group{
 		name:   name,
 		getter: getter,
 		mainCache: &cache{
 			cacheBytes: cacheBytes,
 		},
-		loadGroup:   &singleflight.Group{},
-		removeGroup: &singleflight.Group{},
+		flight: &singleflight.Flight{},
 	}
+	mu.Lock()
+	defer mu.Unlock()
 	groups[name] = g
 	return g
 }
 
-// GetGroup 从全局缓存获取Group
-func GetGroup(name string) *Group {
-	mu.RLock() // 从全局缓存获取Group只需要加读锁即可
-	defer mu.RUnlock()
-	return groups[name]
+// RegisterSvr 为 Group 注册 Server
+func (g *Group) RegisterSvr(p Picker) {
+	if g.server != nil {
+		panic("group had been registered server")
+	}
+	g.server = p
 }
 
-// RegisterPeers 注册获取远程节点请求客户端的PeerPicker
-func (g *Group) RegisterPeers(peers PeerPicker) {
-	if g.peers != nil {
-		panic("register peer picker called more than once")
+// GetGroup 获取对应命名空间的缓存
+func GetGroup(name string) *Group {
+	mu.RLock()
+	g := groups[name]
+	mu.RUnlock()
+	return g
+}
+
+func DestroyGroup(name string) {
+	g := GetGroup(name)
+	if g != nil {
+		svr := g.server.(*server)
+		svr.Stop()
+		delete(groups, name)
+		log.Printf("Destroy cache [%s %s]", name, svr.addr)
 	}
-	g.peers = peers
 }
 
 // SetEmptyWhenError 当getter返回error时设置空值，缓解缓存穿透问题
@@ -115,59 +124,15 @@ func (g *Group) Get(key string) (ByteView, error) {
 	return g.load(key)
 }
 
-// Remove 从缓存删除key
-func (g *Group) Remove(key string) error {
-	_, err, _ := g.loadGroup.Do(key, func() (any, error) {
-		// 从目标远程节点删除
-		var owner PeerGetter
-		if g.peers != nil {
-			peer, ok := g.peers.PickPeer(key)
-			if ok {
-				owner = peer
-				if err := g.removeFromPeer(peer, key); err != nil {
-					return nil, err
-				}
-			}
-		}
-		// 从本地缓存删除
-		g.removeLocally(key)
-		// 从其他远程节点删除
-		if g.peers != nil {
-			var wg sync.WaitGroup
-			var err error
-			for _, peer := range g.peers.GetAll() {
-				if peer == owner {
-					continue
-				}
-				wg.Add(1)
-				go func(peer PeerGetter) {
-					if err0 := g.removeFromPeer(peer, key); err0 != nil {
-						err = err0
-					}
-					wg.Done()
-				}(peer)
-			}
-			wg.Wait()
-			if err != nil {
-				return nil, err
-			}
-		}
-		return nil, nil
-	})
-	return err
-}
-
 // 加载缓存
 func (g *Group) load(key string) (ByteView, error) {
-	view, err, _ := g.loadGroup.Do(key, func() (any, error) {
-		// 先判断是否需要从远程加载
-		if g.peers != nil {
-			// ok代表需要从远程加载
-			if peer, ok := g.peers.PickPeer(key); ok {
-				value, err := g.loadFromPeer(peer, key)
+	view, err := g.flight.Fly(key, func() (interface{}, error) {
+		if g.server != nil { // 先判断是否需要从远程加载
+			if fetcher, ok := g.server.Pick(key); ok { // ok代表需要从远程加载
+				view, err := fetcher.Fetch(g.name, key)
 				if err == nil {
-					g.populateCache(key, value, g.hotCache)
-					return value, nil
+					g.populateCache(key, view, g.hotCache)
+					return view, nil
 				}
 				log.Printf("[Cache] failed to get from peer key=%s, err=%v\n", key, err)
 			}
@@ -205,40 +170,10 @@ func (g *Group) removeLocally(key string) {
 	}
 }
 
-// 发布到缓存
+// 填充到缓存
 func (g *Group) populateCache(key string, value ByteView, cache *cache) {
 	if cache == nil {
 		return
 	}
 	cache.add(key, value)
-}
-
-// 从远程节点加载缓存值
-func (g *Group) loadFromPeer(peer PeerGetter, key string) (ByteView, error) {
-	req := &pb.Request{
-		Group: g.name,
-		Key:   key,
-	}
-	var res pb.Response
-	err := peer.Get(req, &res)
-	if err != nil {
-		return ByteView{}, err
-	}
-	var expire time.Time
-	if res.Expire != 0 {
-		expire = time.Unix(res.Expire/int64(time.Second), res.Expire%int64(time.Second))
-		if time.Now().After(expire) {
-			return ByteView{}, errors.New("peer returned expired value")
-		}
-	}
-	return ByteView{b: res.Value, expire: expire}, nil
-}
-
-// 从远程节点删除缓存值
-func (g *Group) removeFromPeer(peer PeerGetter, key string) error {
-	req := &pb.Request{
-		Group: g.name,
-		Key:   key,
-	}
-	return peer.Remove(req)
 }

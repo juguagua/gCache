@@ -35,13 +35,13 @@ var (
 
 // server 和 Group 是解耦合的 所以server要自己实现并发控制
 type server struct {
-	pb.UnimplementedPeanutCacheServer
+	pb.UnimplementedGroupCacheServer
 
 	addr       string     // format: ip:port
 	status     bool       // 服务状态 true: running    false: stop
 	stopSignal chan error // 通知registry revoke服务
 	mu         sync.Mutex
-	consHash   *consistenthash.Consistency
+	consHash   *consistenthash.Consistence
 	clients    map[string]*client
 }
 
@@ -102,7 +102,7 @@ func (s *server) Start() error {
 		return fmt.Errorf("failed to listen: %v", err)
 	}
 	grpcServer := grpc.NewServer()
-	pb.RegisterPeanutCacheServer(grpcServer, s)
+	pb.RegisterGroupCacheServer(grpcServer, s)
 
 	// 注册服务至etcd
 	go func() {

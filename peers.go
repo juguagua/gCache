@@ -10,5 +10,5 @@ type Picker interface {
 // Fetcher 定义了从远端获取缓存的能力
 // 所以每个Peer应实现这个接口
 type Fetcher interface {
-	Fetch(group string, key string) ([]byte, error)
+	Fetch(group string, key string) (ByteView, error)
 }

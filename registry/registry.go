@@ -3,102 +3,73 @@ package registry
 import (
 	"context"
 	"fmt"
-	"go.etcd.io/etcd/api/v3/mvccpb"
-	etcd "go.etcd.io/etcd/client/v3"
-	"sync"
+	clientv3 "go.etcd.io/etcd/client/v3"
+	"go.etcd.io/etcd/client/v3/naming/endpoints"
+	"log"
 	"time"
 )
 
-const (
-	// 续约间隔，单位秒
-	keepAliveTTL = 10
-	// 事件通道缓冲区大小
-	eventChanSize = 10
+var (
+	defaultEtcdConfig = clientv3.Config{
+		Endpoints:   []string{"localhost:2379"}, // etcd 服务节点
+		DialTimeout: 5 * time.Second,            // 超时连接时间
+	}
 )
 
-// Event 服务变化事件
-type Event struct {
-	AddAddr    string
-	DeleteAddr string
-}
-
-// Registry 名字服务
-type Registry struct {
-	endpoints []string // etcd的多个节点服务地址
-	mu        sync.Mutex
-	client    *etcd.Client
-	prefix    string // etcd名字服务key前缀
-}
-
-func New(prefix string, endpoints []string) (*Registry, error) {
-	client, err := etcd.New(etcd.Config{
-		Endpoints:   endpoints,       // etcd的多个节点服务地址
-		DialTimeout: 5 * time.Second, // 创建client的首次连接超时时间
-	})
-	if err != nil {
-		return nil, err
-	}
-	return &Registry{
-		endpoints: endpoints,
-		client:    client,
-		prefix:    prefix,
-	}, nil
-}
-
-// Register 注册服务
-func (r *Registry) Register(ctx context.Context, addr string) error {
-	kv := etcd.NewKV(r.client)                   // 通过new kv获取kv接口的实现，可通过kv操作etcd中的数据
-	lease := etcd.NewLease(r.client)             // 通过new lease获取Lease对象
-	grant, err := lease.Grant(ctx, keepAliveTTL) // 创建一个续约时间为10s的租约
+// etcdAdd 在租赁模式添加一对kv至etcd
+func etcdAdd(c *clientv3.Client, lid clientv3.LeaseID, service string, addr string) error {
+	em, err := endpoints.NewManager(c, service) // manger是etcd的管理中心
 	if err != nil {
 		return err
 	}
-	key := fmt.Sprintf("%s%s", r.prefix, addr)
-	if _, err := kv.Put(ctx, key, addr, etcd.WithLease(grant.ID)); err != nil {
-		return err
-	}
-	ch, err := lease.KeepAlive(ctx, grant.ID)
-	if err != nil {
-		return err
-	}
-	go func() {
-		for range ch {
-		}
-	}()
-	return nil
+	return em.AddEndpoint(c.Ctx(), service+"/"+addr, endpoints.Endpoint{Addr: addr}, clientv3.WithLease(lid))
 }
 
-// GetAddrs 获取节点地址列表
-func (r *Registry) GetAddrs(ctx context.Context) ([]string, error) {
-	kv := etcd.NewKV(r.client)
-	resp, err := kv.Get(ctx, r.prefix, etcd.WithPrefix())
+// Register 注册一个服务至etcd
+// 注意 Register将不会return 如果没有error的话
+func Register(service string, addr string, stop chan error) error {
+	// 创建一个etcd client
+	cli, err := clientv3.New(defaultEtcdConfig)
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("create etcd client failed: %v", err)
 	}
-	addrs := make([]string, len(resp.Kvs))
-	for i, kv := range resp.Kvs {
-		addrs[i] = string(kv.Value)
+	defer cli.Close()
+	// 创建一个租约 配置5秒过期
+	resp, err := cli.Grant(context.Background(), 5)
+	if err != nil {
+		return fmt.Errorf("create lease failed: %v", err)
 	}
-	return addrs, nil
-}
+	leaseId := resp.ID
+	// 注册服务
+	err = etcdAdd(cli, leaseId, service, addr)
+	if err != nil {
+		return fmt.Errorf("add etcd record failed: %v", err)
+	}
+	// 设置服务心跳检测
+	ch, err := cli.KeepAlive(context.Background(), leaseId)
+	if err != nil {
+		return fmt.Errorf("set keepalive failed: %v", err)
+	}
 
-// Watch 发现服务
-func (r *Registry) Watch(ctx context.Context) <-chan Event {
-	watcher := etcd.NewWatcher(r.client)
-	watchChan := watcher.Watch(ctx, r.prefix, etcd.WithPrefix())
-	ch := make(chan Event, eventChanSize)
-	go func() {
-		for watchRsp := range watchChan {
-			for _, event := range watchRsp.Events {
-				switch event.Type {
-				case mvccpb.PUT:
-					ch <- Event{AddAddr: string(event.Kv.Value)}
-				case mvccpb.DELETE:
-					ch <- Event{DeleteAddr: string(event.Kv.Key[len(r.prefix):])}
-				}
+	log.Printf("[%s] register service ok\n", addr)
+	for {
+		select {
+		case err := <-stop:
+			if err != nil {
+				log.Println(err)
 			}
+			return err
+		case <-cli.Ctx().Done():
+			log.Println("service closed")
+			return nil
+		case _, ok := <-ch:
+			// 监听租约
+			if !ok {
+				log.Println("keep alive channel closed")
+				_, err := cli.Revoke(context.Background(), leaseId)
+				return err
+			}
+			//log.Printf("Recv reply from service: %s/%s, ttl:%d", service, addr, resp.TTL)
 		}
-		close(ch)
-	}()
-	return ch
+	}
 }

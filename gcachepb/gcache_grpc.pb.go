@@ -22,7 +22,7 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type GroupCacheClient interface {
-	Get(ctx context.Context, in *Request, opts ...grpc.CallOption) (*Response, error)
+	Get(ctx context.Context, in *GetRequest, opts ...grpc.CallOption) (*GetResponse, error)
 }
 
 type groupCacheClient struct {
@@ -33,8 +33,8 @@ func NewGroupCacheClient(cc grpc.ClientConnInterface) GroupCacheClient {
 	return &groupCacheClient{cc}
 }
 
-func (c *groupCacheClient) Get(ctx context.Context, in *Request, opts ...grpc.CallOption) (*Response, error) {
-	out := new(Response)
+func (c *groupCacheClient) Get(ctx context.Context, in *GetRequest, opts ...grpc.CallOption) (*GetResponse, error) {
+	out := new(GetResponse)
 	err := c.cc.Invoke(ctx, "/gcachepb.GroupCache/Get", in, out, opts...)
 	if err != nil {
 		return nil, err
@@ -46,7 +46,7 @@ func (c *groupCacheClient) Get(ctx context.Context, in *Request, opts ...grpc.Ca
 // All implementations must embed UnimplementedGroupCacheServer
 // for forward compatibility
 type GroupCacheServer interface {
-	Get(context.Context, *Request) (*Response, error)
+	Get(context.Context, *GetRequest) (*GetResponse, error)
 	mustEmbedUnimplementedGroupCacheServer()
 }
 
@@ -54,7 +54,7 @@ type GroupCacheServer interface {
 type UnimplementedGroupCacheServer struct {
 }
 
-func (UnimplementedGroupCacheServer) Get(context.Context, *Request) (*Response, error) {
+func (UnimplementedGroupCacheServer) Get(context.Context, *GetRequest) (*GetResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Get not implemented")
 }
 func (UnimplementedGroupCacheServer) mustEmbedUnimplementedGroupCacheServer() {}
@@ -71,7 +71,7 @@ func RegisterGroupCacheServer(s grpc.ServiceRegistrar, srv GroupCacheServer) {
 }
 
 func _GroupCache_Get_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(Request)
+	in := new(GetRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -83,7 +83,7 @@ func _GroupCache_Get_Handler(srv interface{}, ctx context.Context, dec func(inte
 		FullMethod: "/gcachepb.GroupCache/Get",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(GroupCacheServer).Get(ctx, req.(*Request))
+		return srv.(GroupCacheServer).Get(ctx, req.(*GetRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
