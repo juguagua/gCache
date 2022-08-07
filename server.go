@@ -145,7 +145,7 @@ func (s *server) SetPeers(peersAddr ...string) {
 		if !validPeerAddr(peerAddr) {
 			panic(fmt.Sprintf("[peer %s] invalid address format, it should be x.x.x.x:port", peerAddr))
 		}
-		service := fmt.Sprintf("peanutcache/%s", peerAddr)
+		service := fmt.Sprintf("gcache/%s", peerAddr)
 		s.clients[peerAddr] = NewClient(service)
 	}
 }
